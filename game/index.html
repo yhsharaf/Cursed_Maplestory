@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0806">
+<title>Cursed MapleStory</title>
+<script>
+  // phones / tablets (or ?touch=1) get the touch layout before anything is drawn
+  if (matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch'))
+    document.documentElement.classList.add('touch');
+</script>
+<style>
+  :root { --bar: 96px; --ink: #f0dcb0; --dim: #8a7550; --btn: #1d140c; --btn-on: #c9a66b;
+          --cream: 248, 236, 210; --line: 43, 26, 12; }
+  html, body { margin: 0; height: 100%; background: #0b0806; overflow: hidden; }
+  .touch, .touch body, .touch * { touch-action: none; overscroll-behavior: none; }
+  .touch body { position: fixed; inset: 0; }
+  body { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  /* #app holds everything; on a phone held upright it is drawn turned 90 degrees, so holding the phone sideways
+     gives a landscape game even with the phone's rotation lock on */
+  #app { --W: 100vw; --H: 100vh; position: fixed; left: 0; top: 0; width: var(--W); height: var(--H);
+         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  @supports (height: 100dvh) { #app { --H: 100dvh; } }
+  #scr { position: relative; line-height: 0; }
+  #c { position: relative; display: block; width: min(var(--W), calc((var(--H) - var(--bar)) * 16 / 9)); height: auto; aspect-ratio: 16 / 9; }
+  /* low-poly 3D scene: drawn behind the HUD canvas, at a low internal resolution for the PS1 look */
+  #p { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; background: #a9d9c6; }
+
+  /* ── desktop: key buttons under the game ─────────────────────────────────────────────── */
+  #pad { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 0 16px;
+         font: 600 12px Georgia, serif; color: var(--dim); touch-action: none; }
+  .group { display: flex; gap: 6px; align-items: center; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 34px); gap: 4px; }
+  .dpad [data-k=up] { grid-column: 2; grid-row: 1; }
+  .dpad [data-k=left] { grid-column: 1; grid-row: 2; }
+  .dpad [data-k=down] { grid-column: 2; grid-row: 2; }
+  .dpad [data-k=right] { grid-column: 3; grid-row: 2; }
+  #pad button { min-width: 40px; height: 34px; padding: 0 10px; border: 2px solid #5a4630; border-radius: 8px;
+           background: var(--btn); color: var(--ink); font: 700 13px Georgia, serif; cursor: pointer;
+           display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; }
+  #pad button small { font: 600 10px Georgia, serif; color: var(--dim); }
+  #pad button.on { background: var(--btn-on); color: #1a0f05; border-color: #f0dcb0; }
+  #pad button.on small { color: #3a2410; }
+
+  /* ── phone: full-screen game, touch controls on top ──────────────────────────────────── */
+  #touch { display: none; }
+  .touch #app { gap: 0; }
+  .touch #c { width: min(var(--W), calc(var(--H) * 16 / 9)); }
+  .touch #pad { display: none; }
+  .touch #touch { display: block; position: absolute; inset: 0; pointer-events: none; touch-action: none; }
+  .touch #touch > * { pointer-events: auto; }
+
+  /* left half: floating joystick (appears where the thumb lands) */
+  #stickZone { position: absolute; left: 0; top: 0; bottom: 0; width: 45%; touch-action: none; }
+  #stick { position: absolute; width: 132px; height: 132px; margin: -66px 0 0 -66px; border-radius: 50%;
+           left: calc(env(safe-area-inset-left, 0px) + 112px); top: calc(100% - 112px - env(safe-area-inset-bottom, 0px));
+           background: radial-gradient(circle, rgba(var(--cream), .10) 0 55%, rgba(var(--cream), .22) 56% 100%);
+           border: 3px solid rgba(var(--line), .55); box-shadow: inset 0 0 0 2px rgba(var(--cream), .35);
+           opacity: .55; transition: opacity .15s; pointer-events: none; }
+  #stick.live { opacity: .95; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+          background: radial-gradient(circle at 38% 32%, rgba(var(--cream), 1), rgba(214, 190, 150, 1) 70%);
+          border: 3px solid rgba(var(--line), .9); box-shadow: 0 3px 0 rgba(var(--line), .6); }
+
+  /* right side: action buttons in a thumb arc */
+  #actions { position: absolute; right: calc(env(safe-area-inset-right, 0px) + 18px);
+             bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: 250px; height: 220px; }
+  .act { position: absolute; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+         font: 900 13px/1 Georgia, serif; letter-spacing: .5px; color: rgb(var(--line));
+         background: radial-gradient(circle at 38% 30%, rgba(var(--cream), .92), rgba(222, 200, 160, .85) 72%);
+         border: 3px solid rgba(var(--line), .85); box-shadow: 0 4px 0 rgba(var(--line), .55), inset 0 -3px 0 rgba(var(--line), .18);
+         touch-action: none; transition: transform .05s; }
+  .act i { font-style: normal; font-size: 20px; line-height: 1; margin-bottom: 3px; }
+  .act.on { transform: translateY(3px) scale(.94); box-shadow: 0 1px 0 rgba(var(--line), .55);
+            background: radial-gradient(circle at 38% 30%, #fff8e6, #f2c66b 75%); }
+  #bJump  { width: 92px; height: 92px; right: 0;     bottom: 0; }
+  #bShoot { width: 92px; height: 92px; right: 104px; bottom: 6px; }
+  #bDash  { width: 68px; height: 68px; right: 12px;  bottom: 106px; }
+  #bEx    { width: 68px; height: 68px; right: 96px;  bottom: 112px; }
+  #bShoot.auto { box-shadow: 0 4px 0 rgba(var(--line), .55), 0 0 0 5px rgba(242, 198, 107, .75); }
+
+  /* top corners: small round utility buttons */
+  #util { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); right: calc(env(safe-area-inset-right, 0px) + 12px);
+          display: flex; gap: 8px; }
+  .mini { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+          font: 900 16px Georgia, serif; color: rgb(var(--cream)); background: rgba(var(--line), .55);
+          border: 2px solid rgba(var(--cream), .55); touch-action: none; }
+  .mini.on { background: rgba(242, 198, 107, .85); color: rgb(var(--line)); }
+  #hint { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); transform: translateX(-50%);
+          font: italic 12px Georgia, serif; color: rgba(var(--cream), .55); pointer-events: none !important; white-space: nowrap; }
+
+  /* portrait phones: ask to turn sideways */
+  /* phone held upright (or rotation locked): turn the whole page 90 degrees clockwise */
+  @media (orientation: portrait) {
+    .touch #app { --W: 100vh; --H: 100vw; left: 100vw; transform-origin: 0 0; transform: rotate(90deg); }
+    @supports (height: 100dvh) { .touch #app { --W: 100dvh; } }
+  }
+
+  /* ── low-poly look: every control is a faceted polygon, labels in a pixel font ───────────── */
+  :root { --pix: "Press Start 2P", ui-monospace, monospace;
+          --facets: conic-gradient(from 22.5deg, #f6e6c0 0 12.5%, #dcc08c 0 25%, #f6e6c0 0 37.5%, #dcc08c 0 50%,
+                                   #f6e6c0 0 62.5%, #dcc08c 0 75%, #f6e6c0 0 87.5%, #dcc08c 0);
+          --facets-on: conic-gradient(from 22.5deg, #ffe27a 0 12.5%, #f0a830 0 25%, #ffe27a 0 37.5%, #f0a830 0 50%,
+                                      #ffe27a 0 62.5%, #f0a830 0 75%, #ffe27a 0 87.5%, #f0a830 0);
+          --oct: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+          --hex: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); }
+  .act { clip-path: var(--oct); border: 0; border-radius: 0; background: var(--facets); box-shadow: none;
+         font: 9px/1.25 var(--pix); letter-spacing: 0; color: #2b1a0c; filter: drop-shadow(0 4px 0 rgba(43, 26, 12, .75)); }
+  .act i { font-size: 18px; margin-bottom: 5px; }
+  .act.on { background: var(--facets-on); transform: translateY(3px) scale(.94); box-shadow: none; filter: drop-shadow(0 1px 0 rgba(43, 26, 12, .75)); }
+  #bShoot.auto { box-shadow: none; background: var(--facets-on); }
+  .mini { clip-path: var(--hex); border: 0; border-radius: 0; background: rgba(43, 26, 12, .72);
+          font: 12px var(--pix); color: #f6e6c0; }
+  .mini.on { background: #f0a830; color: #2b1a0c; }
+  #stick { clip-path: var(--oct); border: 0; border-radius: 0; box-shadow: none;
+           background: conic-gradient(from 22.5deg, rgba(246,230,192,.28) 0 12.5%, rgba(246,230,192,.14) 0 25%, rgba(246,230,192,.28) 0 37.5%, rgba(246,230,192,.14) 0 50%,
+                                      rgba(246,230,192,.28) 0 62.5%, rgba(246,230,192,.14) 0 75%, rgba(246,230,192,.28) 0 87.5%, rgba(246,230,192,.14) 0); }
+  #knob { clip-path: var(--hex); border: 0; border-radius: 0; box-shadow: none; background: var(--facets); }
+  #hint { font: 8px/1.6 var(--pix); }
+  #pad { font: 8px var(--pix); }
+  #pad button { clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px);
+                border: 0; border-radius: 0; background: #3a2618; color: #f6e6c0; font: 9px var(--pix); height: 38px; gap: 3px; }
+  #pad button small { font: 7px var(--pix); color: #bba57a; }
+  #pad button.on { background: #f0a830; color: #2b1a0c; }
+  #pad button.on small { color: #5a3a12; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+</head>
+<body>
+<div id="app">
+<div id="scr"><canvas id="p"></canvas><canvas id="c" width="1280" height="720"></canvas></div>
+
+<!-- desktop key buttons -->
+<div id="pad" aria-label="Controls">
+  <div class="dpad">
+    <button data-k="up">▲<small>↑ W</small></button>
+    <button data-k="left">◀<small>← A</small></button>
+    <button data-k="down">▼<small>↓ S</small></button>
+    <button data-k="right">▶<small>→ D</small></button>
+  </div>
+  <div class="group">
+    <button data-k="jump">Jump<small>Z / Space</small></button>
+    <button data-k="shoot">Shoot<small>X / J</small></button>
+    <button data-k="dash">Dash<small>Shift / L</small></button>
+    <button data-k="ex">EX<small>V / E</small></button>
+  </div>
+  <div class="group">
+    <button data-k="start">Start<small>Enter</small></button>
+    <button data-k="mute">Mute<small>M</small></button>
+  </div>
+</div>
+
+<!-- phone controls -->
+<div id="touch">
+  <div id="stickZone"></div>
+  <div id="stick"><div id="knob"></div></div>
+  <div id="actions">
+    <div class="act" id="bEx" data-k="ex"><i>★</i>EX</div>
+    <div class="act" id="bDash" data-k="dash"><i>»</i>DASH</div>
+    <div class="act" id="bShoot" data-k="shoot"><i>●</i>SHOOT</div>
+    <div class="act" id="bJump" data-k="jump"><i>▲</i>JUMP</div>
+  </div>
+  <div id="util">
+    <div class="mini" data-k="mute" title="Mute">♪</div>
+    <div class="mini" id="bFull" title="Full screen">⛶</div>
+  </div>
+  <div id="hint">tap SHOOT to start or stop firing · tap JUMP again in the air to parry</div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="poly.js"></script>
+<script src="sound.js"></script>
+<script src="game.js"></script>
+<script>
+  const IN = () => window.__input;
+  const buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} };
+  const cap = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch (err) {} };   // keep the finger even if it slides off
+
+  // ── desktop buttons: light up with the keyboard, click to press ───────────────────────────
+  const padBtns = [...document.querySelectorAll('#pad button')];
+  for (const b of padBtns) {
+    const up = () => { b.dataset.ptr = ''; if (b.dataset.k !== 'shoot') IN().up(b.dataset.k); };
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (b.dataset.k === 'shoot') { IN().held.shoot ? IN().up('shoot') : IN().down('shoot'); return; }   // on / off switch
+      cap(b, e); b.dataset.ptr = '1'; IN().down(b.dataset.k);
+    });
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+    b.addEventListener('contextmenu', e => e.preventDefault());
+  }
+
+  // ── phone controls, built on touch events (the most reliable input on iPhone + Android) ──────
+  // Every touch on the page is ours: no double-tap zoom, no pinch zoom, no scrolling, no long-press menu.
+  // Each finger is tracked on its own, so running + jumping + shooting all work at the same time.
+  const acts = [...document.querySelectorAll('#touch [data-k]')];
+  const TOUCH_UI = document.documentElement.classList.contains('touch');
+  const zone = document.getElementById('stickZone'), stick = document.getElementById('stick'), knob = document.getElementById('knob');
+  const R = 66, DEAD = 0.2;
+  // shooting is a switch: one tap starts firing non-stop, the next tap stops it
+  const toggleShoot = () => { if (IN().held.shoot) IN().up('shoot'); else IN().down('shoot'); };
+  const turned = () => TOUCH_UI && matchMedia('(orientation: portrait)').matches;
+  // screen point -> page point (the turned page's x runs down the screen, its y from the right edge leftwards)
+  const local = (x, y) => turned() ? [y, innerWidth - x] : [x, y];
+  const startTap = () => { if (window.__game && __game.mode !== 'fight' && __game.mode !== 'ready') { IN().down('start'); setTimeout(() => IN().up('start'), 60); } };
+
+  // joystick: floating base where the thumb lands, follows the thumb past its rim
+  let stickId = null, cx = 0, cy = 0, dirs = new Set();
+  const setDirs = next => {
+    for (const d of dirs) if (!next.has(d)) IN().up(d);
+    for (const d of next) if (!dirs.has(d)) IN().down(d);
+    dirs = next;
+  };
+  const placeStick = () => { stick.style.left = cx + 'px'; stick.style.top = cy + 'px'; };
+  const moveStick = (x, y) => {
+    let dx = x - cx, dy = y - cy, len = Math.hypot(dx, dy);
+    const max = R - 8;
+    if (len > max) {                                   // drag the base along so turning back is instant
+      cx += dx * (1 - max / len); cy += dy * (1 - max / len); placeStick();
+      dx = x - cx; dy = y - cy; len = max;
+    }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    const next = new Set();
+    if (len > R * DEAD) {
+      const nx = dx / len, ny = -dy / len;              // ny > 0 = up
+      if (nx > 0.38) next.add('right'); if (nx < -0.38) next.add('left');
+      if (ny > 0.5) next.add('up');                    // up / diagonal-up aim from about 30 degrees
+      if (ny < -0.72) next.add('down');                // down (duck!) only when clearly pushed down, not while running
+    }
+    setDirs(next);
+  };
+  const endStick = () => {
+    stickId = null; setDirs(new Set()); knob.style.transform = '';
+    stick.classList.remove('live'); stick.style.left = ''; stick.style.top = '';
+  };
+
+  // buttons: a finger can slide from one button onto another (SHOOT -> JUMP) like real mobile games
+  const fingers = new Map();                           // touch id -> button element under it
+  const btnAt = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('#touch .act, #touch .mini') : null; };
+  const press = b => {
+    if (!b) return;
+    buzz();
+    if (b.id === 'bFull') return;                      // full screen happens on finger-up (browsers need that)
+    const k = b.dataset.k;
+    if (k === 'shoot') { toggleShoot(); return; }
+    b.dataset.ptr = '1'; IN().down(k);
+  };
+  const release = b => {
+    if (!b || !b.dataset.k) return;
+    b.dataset.ptr = '';
+    if ([...fingers.values()].includes(b)) return;     // another finger still holds it
+    if (b.dataset.k !== 'shoot') IN().up(b.dataset.k);   // SHOOT stays on until it's tapped again
+  };
+  const goFull = async () => {
+    try {
+      if (!document.fullscreenElement) { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); await screen.orientation.lock('landscape'); }
+      else await document.exitFullscreen();
+    } catch (err) {}
+  };
+
+  if (TOUCH_UI) {
+    const opt = { passive: false };
+    // fingers the phone forgot to report lifting (it happens near screen-edge gestures) must not block new ones
+    const forgetLost = e => {
+      const live = new Set([...e.touches].map(t => t.identifier));
+      if (stickId !== null && !live.has(stickId)) endStick();
+      for (const [id, b] of fingers) if (!live.has(id)) { fingers.delete(id); release(b); }
+    };
+    const app = document.getElementById('app');
+    document.addEventListener('touchstart', e => {
+      e.preventDefault();
+      forgetLost(e);
+      for (const t of e.changedTouches) {
+        const b = btnAt(t.clientX, t.clientY);
+        if (b) { fingers.set(t.identifier, b); press(b); continue; }
+        // any other touch on the left half of the game grabs the joystick, right where the thumb lands
+        const [lx, ly] = local(t.clientX, t.clientY);
+        if (lx < app.offsetWidth * 0.5) {
+          if (stickId !== null) endStick();           // a new thumb always wins over an old one
+          stickId = t.identifier; cx = lx; cy = ly; placeStick();
+          stick.classList.add('live'); moveStick(cx, cy);
+        }
+        startTap();
+      }
+    }, opt);
+    document.addEventListener('touchmove', e => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        if (t.identifier === stickId) { moveStick(...local(t.clientX, t.clientY)); continue; }
+        if (!fingers.has(t.identifier)) continue;
+        const was = fingers.get(t.identifier), now = btnAt(t.clientX, t.clientY);
+        if (now !== was && (!now || now.classList.contains('act')) && was.classList.contains('act')) {
+          fingers.delete(t.identifier); release(was);
+          if (now) { fingers.set(t.identifier, now); press(now); }
+        }
+      }
+    }, opt);
+    const end = e => {
+      e.preventDefault();                              // also what stops double-tap zoom on iPhone
+      for (const t of e.changedTouches) {
+        if (t.identifier === stickId) { endStick(); continue; }
+        const b = fingers.get(t.identifier);
+        fingers.delete(t.identifier);
+        if (b && b.id === 'bFull' && e.type === 'touchend') goFull();
+        release(b);
+      }
+    };
+    document.addEventListener('touchend', end, opt);
+    document.addEventListener('touchcancel', end, opt);
+    for (const t of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick', 'contextmenu'])
+      document.addEventListener(t, ev => ev.preventDefault(), opt);           // Safari pinch / double-click zoom
+  }
+  setTimeout(() => { const h = document.getElementById('hint'); if (h) h.style.opacity = '0'; }, 9000);
+
+  // everything lights up with its action (keyboard, touch or auto-fire)
+  (function glow() {
+    const held = window.__input ? window.__input.held : {};
+    for (const b of [...padBtns, ...acts]) b.classList.toggle('on', !!held[b.dataset.k] || b.dataset.ptr === '1');
+    requestAnimationFrame(glow);
+  })();
+  // when the canvas size changes (rotation, full screen) the game re-fits its pixels
+  addEventListener('orientationchange', () => setTimeout(() => dispatchEvent(new Event('resize')), 300));
+  document.addEventListener('fullscreenchange', () => setTimeout(() => dispatchEvent(new Event('resize')), 150));
+</script>
+</body>
+</html>
